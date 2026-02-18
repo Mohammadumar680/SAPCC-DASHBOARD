@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>SAPCC – Govt Climate Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+<style>
+
+/* ================= INTERACTIVE BACKGROUND ================= */
+
+.interactive-bg{
+    position:fixed;
+    width:100%;
+    height:100%;
+    background:linear-gradient(135deg,#0b3d91,#102a43,#1f4e79,#0b3d91);
+    background-size:400% 400%;
+    animation:bgMove 20s ease infinite;
+    z-index:-30;
+}
+@keyframes bgMove{
+    0%{background-position:0% 50%;}
+    50%{background-position:100% 50%;}
+    100%{background-position:0% 50%;}
+}
+
+.animated-grid{
+    position:fixed;
+    width:100%;
+    height:100%;
+    background-image:
+        linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+    background-size:50px 50px;
+    animation:gridScroll 30s linear infinite;
+    z-index:-29;
+}
+@keyframes gridScroll{
+    from{background-position:0 0;}
+    to{background-position:100px 100px;}
+}
+
+.mouse-light{
+    position:fixed;
+    width:350px;
+    height:350px;
+    border-radius:50%;
+    background:radial-gradient(circle, rgba(255,153,51,0.25) 0%, transparent 70%);
+    pointer-events:none;
+    transform:translate(-50%, -50%);
+    transition:0.05s linear;
+    z-index:-28;
+}
+
+.particle{
+    position:fixed;
+    width:3px;
+    height:3px;
+    background:#ffffff;
+    border-radius:50%;
+    opacity:0.6;
+    animation:floatUp linear infinite;
+    z-index:-27;
+}
+@keyframes floatUp{
+    from{transform:translateY(100vh);}
+    to{transform:translateY(-10vh);}
+}
+
+/* ================= BODY CONTENT ================= */
+
+body{
+    margin:0;
+    font-family:'Segoe UI', sans-serif;
+    color:#1f2d3d;
+    overflow-x:hidden;
+}
+
+header{
+    background:#0b3d91;
+    color:white;
+    padding:15px;
+    text-align:center;
+    font-size:20px;
+    font-weight:bold;
+}
+
+.tricolor{
+    height:6px;
+    background: linear-gradient(to right,#FF9933 33%,white 33%,white 66%,#138808 66%);
+}
+
+.container{
+    width:95%;
+    margin:20px auto;
+}
+
+.top-bar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    margin-bottom:20px;
+}
+
+input, select, button{
+    padding:6px;
+    border-radius:4px;
+    border:1px solid #ccc;
+    font-size:12px;
+}
+
+button{
+    background:#0b3d91;
+    color:white;
+    cursor:pointer;
+}
+
+/* KPI */
+
+.kpi-container{
+    display:grid;
+    grid-template-columns: repeat(4,1fr);
+    gap:15px;
+    margin-bottom:20px;
+}
+
+.kpi{
+    background:rgba(255,255,255,0.95);
+    padding:15px;
+    border-left:5px solid #FF9933;
+    border-radius:6px;
+    text-align:center;
+    transition:0.3s;
+}
+
+.kpi:hover{
+    transform:translateY(-5px);
+}
+
+.kpi h3{margin:0;font-size:13px;color:#555;}
+.kpi h2{margin:5px 0;font-size:22px;color:#0b3d91;}
+
+/* Charts */
+
+.chart-container{
+    display:grid;
+    grid-template-columns: repeat(2,1fr);
+    gap:15px;
+}
+
+.chart-card{
+    background:white;
+    padding:10px;
+    border-radius:6px;
+    transition:0.3s;
+}
+
+.chart-card:hover{
+    transform:translateY(-5px);
+}
+
+canvas{height:250px !important;}
+
+.compare-section{
+    background:white;
+    padding:15px;
+    margin-top:20px;
+    border-radius:6px;
+}
+
+@media print{
+    button,input,select{display:none;}
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="interactive-bg"></div>
+<div class="animated-grid"></div>
+<div class="mouse-light" id="mouseLight"></div>
+
+<header>
+SAPCC – Government of Jammu & Kashmir Climate Action Dashboard
+</header>
+<div class="tricolor"></div>
+
+<div class="container">
+
+<div class="top-bar">
+<input type="file" id="excelFile" accept=".xlsx, .xls">
+<input type="text" id="searchBox" placeholder="Search Activity / Department">
+<input type="number" id="minBudget" placeholder="Min Budget">
+<input type="number" id="maxBudget" placeholder="Max Budget">
+<button onclick="applyFilters()">Apply Filter</button>
+<button onclick="window.print()">Export PDF</button>
+<select id="sectorFilter">
+<option value="All">All Sectors</option>
+</select>
+</div>
+
+<div class="kpi-container">
+<div class="kpi"><h3>Total Activities</h3><h2 id="totalActivities">0</h2></div>
+<div class="kpi"><h3>Total Budget (Cr)</h3><h2 id="totalBudget">0</h2></div>
+<div class="kpi"><h3>UT Budget (Cr)</h3><h2 id="utBudget">0</h2></div>
+<div class="kpi"><h3>Central Budget (Cr)</h3><h2 id="centralBudget">0</h2></div>
+</div>
+
+<div class="chart-container">
+<div class="chart-card"><canvas id="sectorChart"></canvas></div>
+<div class="chart-card"><canvas id="strategyChart"></canvas></div>
+<div class="chart-card"><canvas id="departmentChart"></canvas></div>
+<div class="chart-card"><canvas id="topSectorChart"></canvas></div>
+</div>
+
+<div class="compare-section">
+<h3>Compare Two Sectors (Real Budget Data)</h3>
+<select id="compareSector1"></select>
+<select id="compareSector2"></select>
+<button onclick="compareTwoSectors()">Compare Now</button>
+<canvas id="sectorCompareChart" style="margin-top:15px;height:300px;"></canvas>
+</div>
+
+</div>
+
+<script>
+
+let originalData=[];
+let charts={};
+
+document.addEventListener("mousemove", function(e){
+    let light=document.getElementById("mouseLight");
+    light.style.left=e.clientX+"px";
+    light.style.top=e.clientY+"px";
+});
+
+function createParticles(){
+    for(let i=0;i<40;i++){
+        let p=document.createElement("div");
+        p.className="particle";
+        p.style.left=Math.random()*100+"%";
+        p.style.animationDuration=(8+Math.random()*10)+"s";
+        p.style.animationDelay=Math.random()*5+"s";
+        document.body.appendChild(p);
+    }
+}
+createParticles();
+
+document.getElementById("excelFile").addEventListener("change", handleFile);
+
+function handleFile(e){
+const file=e.target.files[0];
+const reader=new FileReader();
+reader.onload=function(event){
+const data=new Uint8Array(event.target.result);
+const workbook=XLSX.read(data,{type:'array'});
+const sheetName=workbook.SheetNames[0];
+const worksheet=workbook.Sheets[sheetName];
+const json=XLSX.utils.sheet_to_json(worksheet);
+originalData=json;
+populateFilter(json);
+populateCompareDropdown(json);
+updateDashboard(json);
+};
+reader.readAsArrayBuffer(file);
+}
+
+function populateFilter(data){
+let select=document.getElementById("sectorFilter");
+select.innerHTML='<option value="All">All Sectors</option>';
+let sectors=[...new Set(data.map(d=>d.Sector).filter(Boolean))];
+sectors.forEach(sec=>{
+select.innerHTML+=`<option value="${sec}">${sec}</option>`;
+});
+select.addEventListener("change", applyFilters);
+}
+
+function populateCompareDropdown(data){
+let sectors=[...new Set(data.map(d=>d.Sector).filter(Boolean))];
+let s1=document.getElementById("compareSector1");
+let s2=document.getElementById("compareSector2");
+s1.innerHTML=""; s2.innerHTML="";
+sectors.forEach(sec=>{
+s1.innerHTML+=`<option value="${sec}">${sec}</option>`;
+s2.innerHTML+=`<option value="${sec}">${sec}</option>`;
+});
+}
+
+function applyFilters(){
+let search=document.getElementById("searchBox").value.toLowerCase();
+let min=document.getElementById("minBudget").value;
+let max=document.getElementById("maxBudget").value;
+let sector=document.getElementById("sectorFilter").value;
+
+let filtered=originalData.filter(d=>{
+let activity=(d.Activity||"").toLowerCase();
+let department=(d.Department||"").toLowerCase();
+let strategy=(d.Strategy||"").toLowerCase();
+let matchSearch=activity.includes(search)||department.includes(search)||strategy.includes(search);
+let budget=Number(d["Total Budget (crores)"]||0);
+let matchBudget=(!min||budget>=Number(min))&&(!max||budget<=Number(max));
+let matchSector=(sector==="All"||d.Sector===sector);
+return matchSearch&&matchBudget&&matchSector;
+});
+updateDashboard(filtered);
+}
+
+function updateDashboard(data){
+animateValue("totalActivities",data.length);
+let totalBudget=data.reduce((s,d)=>s+Number(d["Total Budget (crores)"]||0),0);
+let utBudget=data.reduce((s,d)=>s+Number(d["UT Budget"]||0),0);
+let centralBudget=data.reduce((s,d)=>s+Number(d["Central Budget"]||0),0);
+animateValue("totalBudget",totalBudget);
+animateValue("utBudget",utBudget);
+animateValue("centralBudget",centralBudget);
+createChart("sectorChart",groupSum(data,"Sector","Total Budget (crores)"),"bar");
+createChart("strategyChart",groupSum(data,"Strategy","Total Budget (crores)"),"pie");
+createChart("departmentChart",groupCount(data,"Department"),"bar");
+createTop5Chart(data);
+}
+
+function groupSum(data,key,valueField){
+let result={};
+data.forEach(d=>{
+let k=d[key];
+let v=Number(d[valueField]||0);
+if(k) result[k]=(result[k]||0)+v;
+});
+return result;
+}
+
+function groupCount(data,key){
+let result={};
+data.forEach(d=>{
+let k=d[key];
+if(k) result[k]=(result[k]||0)+1;
+});
+return result;
+}
+
+function createTop5Chart(data){
+let sectorData=groupSum(data,"Sector","Total Budget (crores)");
+let sorted=Object.entries(sectorData).sort((a,b)=>b[1]-a[1]).slice(0,5);
+createChart("topSectorChart",Object.fromEntries(sorted),"bar");
+}
+
+function compareTwoSectors(){
+let sec1=document.getElementById("compareSector1").value;
+let sec2=document.getElementById("compareSector2").value;
+if(sec1===sec2){alert("Select different sectors");return;}
+let sum1=originalData.filter(d=>d.Sector===sec1)
+.reduce((s,d)=>s+Number(d["Total Budget (crores)"]||0),0);
+let sum2=originalData.filter(d=>d.Sector===sec2)
+.reduce((s,d)=>s+Number(d["Total Budget (crores)"]||0),0);
+
+if(charts["sectorCompareChart"]) charts["sectorCompareChart"].destroy();
+let ctx=document.getElementById("sectorCompareChart").getContext("2d");
+
+charts["sectorCompareChart"]=new Chart(ctx,{
+type:"bar",
+data:{
+labels:[sec1,sec2],
+datasets:[{
+label:"Budget (Cr)",
+data:[sum1,sum2],
+backgroundColor:["#FF9933","#138808"]
+}]
+},
+options:{responsive:true}
+});
+}
+
+function animateValue(id,value){
+let obj=document.getElementById(id);
+let start=0;
+let increment=value/40;
+let counter=setInterval(function(){
+start+=increment;
+if(start>=value){
+obj.innerText=value.toFixed(0);
+clearInterval(counter);
+}else{
+obj.innerText=Math.floor(start);
+}
+},15);
+}
+
+function createChart(canvasId,data,type){
+if(charts[canvasId]) charts[canvasId].destroy();
+let ctx=document.getElementById(canvasId).getContext("2d");
+let colors=["#FF9933","#138808","#17a2b8","#6f42c1","#dc3545","#20c997","#343a40"];
+charts[canvasId]=new Chart(ctx,{
+type:type,
+data:{
+labels:Object.keys(data),
+datasets:[{data:Object.values(data),backgroundColor:colors}]
+},
+options:{responsive:true,maintainAspectRatio:false}
+});
+}
+
+</script>
+
+</body>
+</html>
